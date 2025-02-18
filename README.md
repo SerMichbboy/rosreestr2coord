@@ -230,6 +230,8 @@ area.to_geojson()
 
 ## Использование GUI
 
+pyinstaller --onefile --windowed gui.py
+
 Для использования графического интерфейса:
 
 1. Запустите `gui.exe` из папки `dist`.
