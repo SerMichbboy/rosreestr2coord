@@ -1,22 +1,39 @@
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import messagebox, scrolledtext, filedialog
 from rosreestr2coord import Area
 import subprocess
 import sys
-import re  
-from xml.etree.ElementTree import tostring 
-import json  
+import re
+from xml.etree.ElementTree import tostring
+import json
 
+
+# Автоустановка зависимостей
 def install_dependencies():
     try:
         import rosreestr2coord
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "rosreestr2coord"])
 
+
 install_dependencies()
+
 
 def sanitize_filename(cadastral_number):
     return re.sub(r'[<>:"/\\|?*]', '-', cadastral_number)
+
+
+# Глобальная переменная для пути сохранения
+save_path = ""
+
+
+def select_save_path():
+    global save_path
+    save_path = filedialog.askdirectory()
+    if save_path:
+        log_text.insert(tk.END, f"Путь сохранения: {save_path}\n")
+        log_text.see(tk.END)
+
 
 def get_kml():
     cadastral_number = entry.get()
@@ -28,29 +45,26 @@ def get_kml():
         area = Area(cadastral_number, area_type=1)
         if area.feature is None:
             raise ValueError("Нет доступных геометрических данных для данного кадастрового номера.")
-        
+
         kml_data = area.to_kml()
         if not kml_data:
             raise ValueError("Не удалось получить данные KML.")
-        
-        if isinstance(kml_data, str):
-            kml_string = kml_data
-        else:
-            kml_string = tostring(kml_data.getroot(), encoding='utf-8').decode('utf-8')
-            
+
+        kml_string = kml_data if isinstance(kml_data, str) else tostring(kml_data.getroot(), encoding='utf-8').decode(
+            'utf-8')
+
         safe_filename = sanitize_filename(cadastral_number)
-        output_path = f"{safe_filename}.kml"
+        output_path = f"{save_path}/{safe_filename}.kml" if save_path else f"{safe_filename}.kml"
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(kml_string)
 
-        log_message = f"Файл {output_path} успешно создан!\n"
-        log_text.insert(tk.END, log_message)
+        log_text.insert(tk.END, f"Файл {output_path} успешно создан!\n")
         log_text.see(tk.END)
 
     except Exception as e:
-        error_message = f"Ошибка: {str(e)}\n"
-        log_text.insert(tk.END, error_message)
+        log_text.insert(tk.END, f"Ошибка: {str(e)}\n")
         log_text.see(tk.END)
+
 
 def get_json():
     cadastral_number = entry.get()
@@ -62,42 +76,69 @@ def get_json():
         area = Area(cadastral_number, area_type=1)
         if area.feature is None:
             raise ValueError("Нет доступных геометрических данных для данного кадастрового номера.")
-        
+
         json_data = area.to_geojson()
         if not json_data:
             raise ValueError("Не удалось получить данные в формате JSON.")
-        
-        if isinstance(json_data, str):
-            json_data = json.loads(json_data)
-        
+
+        json_data = json.loads(json_data) if isinstance(json_data, str) else json_data
+
         safe_filename = sanitize_filename(cadastral_number)
-        output_path = f"{safe_filename}.json"
+        output_path = f"{save_path}/{safe_filename}.json" if save_path else f"{safe_filename}.json"
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-        log_message = f"Файл {output_path} успешно создан!\n"
-        log_text.insert(tk.END, log_message)
+        log_text.insert(tk.END, f"Файл {output_path} успешно создан!\n")
         log_text.see(tk.END)
 
     except Exception as e:
-        error_message = f"Ошибка: {str(e)}\n"
-        log_text.insert(tk.END, error_message)
+        log_text.insert(tk.END, f"Ошибка: {str(e)}\n")
         log_text.see(tk.END)
+
+
+def on_closing():
+    if messagebox.askyesno("Выход", "Вы действительно хотите выйти?"):
+        root.destroy()
+
 
 root = tk.Tk()
 root.title("Кадастровый номер в KML и JSON")
+root.geometry("500x400")
+root.configure(bg="#2C2F33")
+root.overrideredirect(True)
+root.bind("<Escape>", lambda e: on_closing())
 
-entry = tk.Entry(root, width=50)
-entry.pack(pady=20)
+frame = tk.Frame(root, bg="#2C2F33")
+frame.pack(pady=10, padx=10)
+
+entry = tk.Entry(frame, width=40, font=("Arial", 14), bg="#23272A", fg="white", insertbackground="white")
+entry.pack(pady=10)
+
+button_frame = tk.Frame(root, bg="#2C2F33")
+button_frame.pack(pady=10)
 
 
-button_kml = tk.Button(root, text="Получить KML", command=get_kml)
-button_kml.pack(pady=10)
+def create_button(text, command):
+    return tk.Button(
+        button_frame, text=text, command=command,
+        font=("Arial", 12), bg="#7289DA", fg="white", bd=0, padx=10, pady=5,
+        activebackground="#5B6EAE", activeforeground="white"
+    )
 
-button_json = tk.Button(root, text="Получить данные в формате JSON", command=get_json)
-button_json.pack(pady=10)
 
-log_text = scrolledtext.ScrolledText(root, width=60, height=15)
-log_text.pack(pady=20)
+button_kml = create_button("Получить KML", get_kml)
+button_kml.pack(pady=5, fill=tk.X)
+
+button_json = create_button("Получить JSON", get_json)
+button_json.pack(pady=5, fill=tk.X)
+
+button_path = create_button("Выбрать путь сохранения", select_save_path)
+button_path.pack(pady=5, fill=tk.X)
+
+button_exit = create_button("Выход", on_closing)
+button_exit.pack(pady=5, fill=tk.X)
+
+log_text = scrolledtext.ScrolledText(root, width=60, height=10, bg="#23272A", fg="white", insertbackground="white")
+log_text.pack(pady=10)
 
 root.mainloop()
