@@ -7,7 +7,6 @@ import re
 from xml.etree.ElementTree import tostring
 import json
 
-# Автоустановка зависимостей
 def install_dependencies():
     try:
         import rosreestr2coord
