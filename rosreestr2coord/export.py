@@ -1,161 +1,128 @@
-# coding: utf-8
-import copy
+import os
 import csv
 import json
-import os
 import xml.etree.cElementTree as ET
 
 
 def make_output(output, file_name, file_format, out_path=""):
-    out_path = out_path if out_path else file_format
-    abspath = os.path.abspath(output)
-    filename = "%s.%s" % (file_name, file_format)
-    path = os.path.join(abspath, out_path)
-    if not os.path.isdir(path):
-        os.makedirs(path)
-    return os.path.join(path, filename)
+    out_path = out_path or file_format
+    path = os.path.join(os.path.abspath(output), out_path)
+    print(f"Creating directory: {path}")
+    os.makedirs(path, exist_ok=True)
+    file_path = os.path.join(path, f"{file_name}.{file_format}")
+    print(f"File will be saved to: {file_path}")
+    return file_path
 
 
-def _write_csv_row(f, area, header=False):
+def _write_csv_row(writer, area, header=False):
     try:
-        xy = copy.deepcopy(list(area.get_coord()))
-        for geom in xy:
+        geometry = area.feature.get('geometry', {})
+        coords = geometry.get('coordinates', [])
+
+        transformed_coords = []
+        for geom in coords:
             for poly in geom:
-                for c in range(len(poly)):
-                    poly[c] = poly[c][::-1]
-        attrs = getattr(area, "attrs", {})
-        address = attrs.get("address", "")
-        cols = [
-            {"name": "code", "value": getattr(area, "code")},
-            {"name": "area", "value": attrs.get("area_value", "")},
-            {"name": "cost", "value": attrs.get("cad_cost", "")},
-            {"name": "address", "value": address},
-            {"name": "coordinates", "value": xy},
-        ]
-
+                print(poly)
+                if isinstance(poly, list):
+                    poly[0], poly[1] = poly[1], poly[0]
+                    transformed_coords.append(poly)
         if header:
-            f.writerow([x["name"] for x in cols])
+            writer.writerow(["longitude", "latitude"])
 
-        f.writerow([x["value"] for x in cols])
+        for coord in transformed_coords:
+            writer.writerow([coord[0], coord[1]])
+
     except Exception as er:
-        print(er)
+        print(f"Error: {er}")
 
 
 def area_csv_output(output, area):
     path = make_output(output, area.file_name, "csv")
-    f = csv.writer(open(path, "w+", encoding="utf-8"))
-    _write_csv_row(f, area)
+    print(f"Writing CSV to: {path}")
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        _write_csv_row(writer, area, header=True)
 
 
 def batch_csv_output(output, areas, file_name):
     path = make_output(output, file_name, "csv")
-    f = csv.writer(open(path, "w+", encoding="utf-8"))
-    for a in range(len(areas)):
-        _write_csv_row(f, areas[a], a == 0)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        for i, area in enumerate(areas):
+            _write_csv_row(writer, area, header=(i == 0))
     return path
 
 
 def batch_json_output(output, areas, file_name, with_attrs=True, crs_name="EPSG:4326"):
-    features = []
-    feature_collection = {
+    features = [a.to_geojson_poly(with_attrs, dumps=False) for a in areas if a.to_geojson_poly(with_attrs, dumps=False)]
+    geojson = {
         "type": "FeatureCollection",
         "crs": {"type": "name", "properties": {"name": crs_name}},
         "features": features,
     }
     path = make_output(output, file_name, "geojson")
-    for a in areas:
-        feature = a.to_geojson_poly(with_attrs, dumps=False)
-        if feature:
-            features.append(feature)
-
-    f = open(path, "w", encoding="utf-8")
-    f.write(json.dumps(feature_collection))
-    f.close()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(geojson, f, ensure_ascii=False, indent=4)
     return path
 
 
 def area_json_output(output, area, with_attrs=True):
     geojson = area.to_geojson_poly(with_attrs)
     if geojson:
-        f = open(make_output(output, area.file_name, "geojson"), "w")
-        f.write(geojson)
-        f.close()
+        path = make_output(output, area.file_name, "geojson")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(geojson)
     return geojson
 
 
 def coords2geojson(coords, geom_type, crs_name, attrs=None):
-    if attrs is False:
-        attrs = {}
+    if not coords:
+        return False
 
-    if len(coords):
-        features = []
-        feature_collection = {"type": "FeatureCollection", "features": features}
-        if geom_type.upper() == "POINT":
-            for i in range(len(coords)):
-                if coords[i]:
-                    for j in range(len(coords[i])):
-                        xy = coords[i][j]
-                        for x, y in xy:
-                            point = {
-                                "type": "Feature",
-                                "properties": {"hole": j > 0},
-                                "geometry": {"type": "Point", "coordinates": [x, y]},
-                            }
-                            features.append(point)
-        elif geom_type.upper() == "POLYGON":
-            multi_polygon = []
-            for fry in range(len(coords)):
-                polygon = []
-                for j in range(len(coords[fry])):
-                    xy = coords[fry][j]
-                    # close polygon
-                    if xy[-1] != xy[0]:
-                        xy.append(xy[0])
-                    polygon.append(xy)
-                multi_polygon.append(polygon)
-            feature = {
-                "type": "Feature",
-                "properties": attrs,
-                "geometry": {"type": "MultiPolygon", "coordinates": multi_polygon},
-            }
-            feature_collection = feature
-        feature_collection["crs"] = {"type": "name", "properties": {"name": crs_name}}
-        return feature_collection
-    return False
+    features = []
+    if geom_type.upper() == "POINT":
+        for geom in coords:
+            for poly in geom:
+                for x, y in poly:
+                    features.append({
+                        "type": "Feature",
+                        "properties": {"hole": False},
+                        "geometry": {"type": "Point", "coordinates": [x, y]},
+                    })
+    elif geom_type.upper() == "POLYGON":
+        multi_polygon = [[[poly + [poly[0]]] for poly in geom] for geom in coords]
+        return {
+            "type": "Feature",
+            "properties": attrs or {},
+            "geometry": {"type": "MultiPolygon", "coordinates": multi_polygon},
+            "crs": {"type": "name", "properties": {"name": crs_name}},
+        }
+
+    return {"type": "FeatureCollection", "features": features,
+            "crs": {"type": "name", "properties": {"name": crs_name}}}
 
 
 def coords2kml(coords, attrs):
-    if len(coords):
-        kml = ET.Element("kml", attrib={"xmlns": "http://www.opengis.net/kml/2.2"})
-        doc = ET.SubElement(kml, "Document")
-        folder = ET.SubElement(doc, "Folder")
-        name = attrs.get("label")
-        if not name:
-            name = attrs.get("options", {}).get("cad_num", "")
-        ET.SubElement(folder, "name").text = name
-        placemark = ET.SubElement(folder, "Placemark")
+    if not coords:
+        return False
 
-        style = ET.SubElement(placemark, "Style")
+    kml = ET.Element("kml", xmlns="http://www.opengis.net/kml/2.2")
+    doc = ET.SubElement(kml, "Document")
+    folder = ET.SubElement(doc, "Folder")
+    ET.SubElement(folder, "name").text = attrs.get("label") or attrs.get("options", {}).get("cad_num", "")
 
-        line_style = ET.SubElement(style, "LineStyle")
-        ET.SubElement(line_style, "color").text = "ff0000ff"
+    placemark = ET.SubElement(folder, "Placemark")
+    style = ET.SubElement(placemark, "Style")
+    ET.SubElement(ET.SubElement(style, "LineStyle"), "color").text = "ff0000ff"
+    ET.SubElement(ET.SubElement(style, "PolyStyle"), "fill").text = "0"
 
-        poly_style = ET.SubElement(style, "PolyStyle")
-        ET.SubElement(poly_style, "fill").text = "0"
+    multi_geometry = ET.SubElement(placemark, "MultiGeometry")
+    for geom in coords:
+        polygon = ET.SubElement(multi_geometry, "Polygon")
+        for j, poly in enumerate(geom):
+            boundary = ET.SubElement(polygon, "innerBoundaryIs" if j else "outerBoundaryIs")
+            ET.SubElement(ET.SubElement(boundary, "LinearRing"), "coordinates").text = " ".join(
+                ",".join(map(str, point)) for point in (poly + [poly[0]])
+            )
 
-        multi_geometry = ET.SubElement(placemark, "MultiGeometry")
-
-        for i in range(len(coords)):
-            polygon = ET.SubElement(multi_geometry, "Polygon")
-            for j in range(len(coords[i])):
-                if j:
-                    # for holes
-                    boundary = ET.SubElement(polygon, "innerBoundaryIs")
-                else:
-                    boundary = ET.SubElement(polygon, "outerBoundaryIs")
-                xy = coords[i][j]
-                xy.append(xy[0])
-                linear_ring = ET.SubElement(boundary, "LinearRing")
-                ET.SubElement(linear_ring, "coordinates").text = " ".join(map(lambda c: ",".join(map(str, c)), xy))
-        return ET.ElementTree(kml)
-    return False
+    return ET.ElementTree(kml)

@@ -8,6 +8,7 @@ import signal
 import sys
 
 from .batch import batch_parser
+from .export import area_csv_output
 from .parser import TYPES, Area
 from .utils import code_to_filename
 
@@ -59,7 +60,6 @@ def get_by_code(code, output, display, **kwargs):
 
 def process_area(area, output_path, display):
     geojson = area.to_geojson_poly()
-
     file_name = code_to_filename(area.file_name)
 
     if geojson:
@@ -68,6 +68,9 @@ def process_area(area, output_path, display):
         kml = area.to_kml()
         if kml:
             save_file(kml, output_path, file_name, "kml")
+
+        area_csv_output(output_path, area)
+
     if display:
         area.show_plot()
 

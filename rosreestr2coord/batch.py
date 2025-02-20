@@ -73,7 +73,7 @@ def batch_parser(
     else:
         path = batch_csv_output(output, areas, file_name)
         if len(with_no_coord):
-            path = batch_csv_output(output, with_no_coord, "%s_no_coord" % file_name)
+            path = batch_csv_output(output, areas, "%s_no_coord" % file_name)
             print("Create output for no_coord complete: %s" % path)
         if len(features):
             path = batch_json_output(output, areas, file_name)
