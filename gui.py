@@ -4,8 +4,11 @@ from rosreestr2coord import Area
 import subprocess
 import sys
 import re
-from xml.etree.ElementTree import tostring
+import os
 import json
+import csv
+from xml.etree.ElementTree import tostring
+
 
 def install_dependencies():
     try:
@@ -13,19 +16,43 @@ def install_dependencies():
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "rosreestr2coord"])
 
+
 install_dependencies()
+
 
 def sanitize_filename(cadastral_number):
     return re.sub(r'[<>:"/\\|?*]', '-', cadastral_number)
 
-save_path = ""
+
+config_file = "config.json"
+
+
+def load_save_path():
+    if os.path.exists(config_file):
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            return config.get("save_path", "")
+    return ""
+
+
+def save_save_path(path):
+    config = {"save_path": path}
+    with open(config_file, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+
+
+save_path = load_save_path()
+
 
 def select_save_path():
     global save_path
-    save_path = filedialog.askdirectory()
-    if save_path:
+    new_path = filedialog.askdirectory(initialdir=save_path)
+    if new_path:
+        save_path = new_path
+        save_save_path(save_path)
         log_text.insert(tk.END, f"Путь сохранения: {save_path}\n")
         log_text.see(tk.END)
+
 
 def get_kml():
     cadastral_number = entry.get()
@@ -42,7 +69,8 @@ def get_kml():
         if not kml_data:
             raise ValueError("Не удалось получить данные KML.")
 
-        kml_string = kml_data if isinstance(kml_data, str) else tostring(kml_data.getroot(), encoding='utf-8').decode('utf-8')
+        kml_string = kml_data if isinstance(kml_data, str) else tostring(kml_data.getroot(), encoding='utf-8').decode(
+            'utf-8')
 
         safe_filename = sanitize_filename(cadastral_number)
         output_path = f"{save_path}/{safe_filename}.kml" if save_path else f"{safe_filename}.kml"
@@ -55,6 +83,7 @@ def get_kml():
     except Exception as e:
         log_text.insert(tk.END, f"Ошибка: {str(e)}\n")
         log_text.see(tk.END)
+
 
 def get_json():
     cadastral_number = entry.get()
@@ -85,18 +114,64 @@ def get_json():
         log_text.insert(tk.END, f"Ошибка: {str(e)}\n")
         log_text.see(tk.END)
 
+
+def get_csv():
+    cadastral_number = entry.get()
+    if not cadastral_number:
+        messagebox.showerror("Ошибка", "Введите кадастровый номер")
+        return
+
+    try:
+        area = Area(cadastral_number, area_type=1)
+        if area.feature is None:
+            raise ValueError("Нет доступных геометрических данных для данного кадастрового номера.")
+
+        area_data = area.to_geojson()
+        if not area_data:
+            raise ValueError("Не удалось получить данные в формате JSON.")
+
+        area_data = json.loads(area_data) if isinstance(area_data, str) else area_data
+
+        features = area_data.get("features", [])
+        if not features:
+            raise ValueError("Нет доступных объектов для экспорта в CSV.")
+
+        csv_data = []
+        for feature in features:
+            properties = feature.get("properties", {})
+            csv_data.append([properties.get("cadastral_number"), properties.get("name")])
+
+        safe_filename = sanitize_filename(cadastral_number)
+        output_path = f"{save_path}/{safe_filename}.csv" if save_path else f"{safe_filename}.csv"
+
+        with open(output_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Кадастровый номер", "Название"])
+            writer.writerows(csv_data)
+
+        log_text.insert(tk.END, f"Файл {output_path} успешно создан!\n")
+        log_text.see(tk.END)
+
+    except Exception as e:
+        log_text.insert(tk.END, f"Ошибка: {str(e)}\n")
+        log_text.see(tk.END)
+
+
 def on_closing():
     if messagebox.askyesno("Выход", "Вы действительно хотите выйти?"):
         root.destroy()
+
 
 def start_drag(event):
     global drag_data
     drag_data = {"x": event.x, "y": event.y}
 
+
 def do_drag(event):
     x = root.winfo_x() - drag_data["x"] + event.x
     y = root.winfo_y() - drag_data["y"] + event.y
     root.geometry(f"+{x}+{y}")
+
 
 root = tk.Tk()
 root.title("Кадастровый номер в KML и JSON")
@@ -116,6 +191,7 @@ entry.pack(pady=10)
 button_frame = tk.Frame(root, bg="#2C2F33")
 button_frame.pack(pady=10)
 
+
 def create_button(text, command):
     return tk.Button(
         button_frame, text=text, command=command,
@@ -123,11 +199,15 @@ def create_button(text, command):
         activebackground="#5B6EAE", activeforeground="white"
     )
 
+
 button_kml = create_button("Получить KML", get_kml)
 button_kml.pack(pady=5, fill=tk.X)
 
 button_json = create_button("Получить JSON", get_json)
 button_json.pack(pady=5, fill=tk.X)
+
+button_csv = create_button("Скачать CSV", get_csv)
+button_csv.pack(pady=5, fill=tk.X)
 
 button_path = create_button("Выбрать путь сохранения", select_save_path)
 button_path.pack(pady=5, fill=tk.X)
