@@ -144,9 +144,7 @@ area.to_geojson()
 
 ## Журнал
 - 27-02-2025 - Добавлление интерфейса и закатка в .exe для удобюной работы с windows.
-- ## Использование GUI
-  
-  pyinstaller --onefile --windowed gui.py
+- pyinstaller --onefile --windowed gui.py
   
   Для использования графического интерфейса:
   
